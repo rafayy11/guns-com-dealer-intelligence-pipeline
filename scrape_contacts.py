@@ -9,11 +9,11 @@ generic inbox or front-desk number.
 Verification rule:
   - Email/phone are only saved if they are found within 300 chars of the person's
     name+title on the page. Generic store emails (info@, sales@) without a named
-    owner attached are marked low-confidence and passed to Apollo for enrichment.
+    owner attached are marked low-confidence and passed to Apollo/Exa enrichment.
 
 Verified levels:
   high   — name + title + email all found near each other on page
-  medium — name + title found, no email (name passed to Vibe for email lookup)
+  medium — name + title found, no email
   low    — only generic store contact found, no owner identified
 
 Cache:   cache/contacts_web_cache.json  (fully resumable)
@@ -465,7 +465,7 @@ def main():
         total = high + medium + low
         print(f"\nPhase 1 results ({len(todo)} processed):")
         print(f"  High   (name+title+email) : {high}")
-        print(f"  Medium (name+title only)  : {medium}  → needs email via Apollo/Vibe")
+        print(f"  Medium (name+title only)  : {medium}  → needs email via Apollo/Exa")
         print(f"  Low    (store contact)    : {low}   → needs owner name via Apollo/Exa")
         print(f"  Not found                 : {not_found}")
 

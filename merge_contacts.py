@@ -3,11 +3,9 @@
 Merge all enrichment caches into a quality-filtered contacts.csv.
 
 Sources (priority order):
-  1. vibe_domain_cache  — domain-matched, best accuracy
-  2. vibe_enrich_cache  — name-matched vibe (old run)
-  3. rocketreach_cache  — name-matched RocketReach
-  4. exa_contacts_cache — Exa AI web search
-  5. contacts_web_cache — direct website scraping
+  1. apollo_contacts_cache — Apollo people/contact enrichment
+  2. exa_contacts_cache    — Exa owner/manager web search
+  3. contacts_web_cache    — direct dealer website scraping
 
 Filters applied:
   - Foreign email domains (.com.au, .co.uk, .ca, etc.) that don't match dealer website
@@ -21,7 +19,7 @@ import csv
 import json
 from pathlib import Path
 
-ENRICHED     = "snapshots/04_pre_enrichment.csv"
+ENRICHED     = "dealers_enriched.csv"
 CONTACTS_OUT = "contacts.csv"
 
 FIELDS = [
@@ -140,75 +138,73 @@ def quality_flag(name: str, title: str, email: str, dealer_website: str) -> str:
 
 
 def main():
-    dealers_map = {r["dealer_name"]: r for r in csv.DictReader(open(ENRICHED))}
+    if not Path(ENRICHED).exists():
+        print(f"ERROR: {ENRICHED} not found. Run the scraper and website enrichment first.")
+        return
 
-    vibe_d   = load_cache("cache/vibe_domain_cache.json")
-    vibe_o   = load_cache("cache/vibe_enrich_cache.json")
-    rr       = load_cache("cache/rocketreach_cache.json")
-    rr_d     = load_cache("cache/rocketreach_domain_cache.json")
-    exa      = load_cache("cache/exa_contacts_cache.json")
-    exa_dom  = load_cache("cache/exa_domain_cache.json")
-    exa_re   = load_cache("cache/exa_rerun_cache.json")
-    exa_wf   = load_cache("cache/exa_web_fetch_cache.json")
-    serper   = load_cache("cache/serper_cache.json")
-    tavily   = load_cache("cache/tavily_cache.json")
-    web      = load_cache("cache/contacts_web_cache.json")
-    apollo   = load_cache("cache/apollo_contacts_cache.json")
-    apollo_d = load_cache("cache/apollo_domain_cache.json")
+    with open(ENRICHED, newline="", encoding="utf-8") as f:
+        dealers_map = {r["dealer_name"]: r for r in csv.DictReader(f)}
+
+    apollo = load_cache("cache/apollo_contacts_cache.json")
+    exa    = load_cache("cache/exa_contacts_cache.json")
+    web    = load_cache("cache/contacts_web_cache.json")
 
     rows = []
     stats = {"high": 0, "medium": 0, "low": 0,
              "false_positive": 0, "low_level": 0, "good": 0}
 
+    def active(data):
+        if not data or not data.get("found"):
+            return {}
+        has_contact = (
+            data.get("contact_name") or
+            data.get("contact_email") or
+            data.get("contact_phone")
+        )
+        return data if has_contact else {}
+
+    def first_value(candidates, key):
+        for _, data in candidates:
+            value = (data.get(key) or "").strip()
+            if value:
+                return value
+        return ""
+
     for dealer, row in dealers_map.items():
         website = row.get("website", "")
 
-        vd = vibe_d.get(dealer, {})
-        vo = vibe_o.get(dealer, {})
-        r  = rr.get(dealer, {}) or rr_d.get(dealer, {})
-        e  = exa.get(dealer, {}) if exa.get(dealer, {}).get("found") else {}
-        w   = web.get(dealer, {}) if web.get(dealer, {}).get("found") else {}
-        ed  = exa_dom.get(dealer, {}) if exa_dom.get(dealer, {}).get("found") else {}
-        er  = exa_re.get(dealer, {}) if exa_re.get(dealer, {}).get("found") else {}
-        ewf = exa_wf.get(dealer, {}) if exa_wf.get(dealer, {}).get("found") else {}
-        sp  = serper.get(dealer, {}) if serper.get(dealer, {}).get("found") else {}
-        tv  = tavily.get(dealer, {}) if tavily.get(dealer, {}).get("found") else {}
-        ap  = apollo.get(dealer, {}) if apollo.get(dealer, {}).get("found") else {}
-        apd = apollo_d.get(dealer, {}) if apollo_d.get(dealer, {}).get("found") else {}
+        candidates = [
+            ("apollo", active(apollo.get(dealer, {}))),
+            ("exa", active(exa.get(dealer, {}))),
+            ("web", active(web.get(dealer, {}))),
+        ]
 
-        def _active(d):
-            return d if d.get("found") and (d.get("contact_email") or d.get("contact_name") or d.get("contact_phone")) else {}
-
-        vibe = _active(vd) or _active(vo)
-
-        # Priority: apollo > vibe > rocketreach > exa_domain > apollo_domain > serper > tavily > exa_rerun > exa_web_fetch > exa_name > web
-        if ap:
-            name  = ap.get("contact_name") or vibe.get("contact_name") or r.get("contact_name") or ed.get("contact_name") or apd.get("contact_name") or ""
-            title = ap.get("contact_title") or vibe.get("contact_title") or r.get("contact_title") or ed.get("contact_title") or apd.get("contact_title") or ""
-            email = ap.get("contact_email") or vibe.get("contact_email") or r.get("contact_email") or ed.get("contact_email") or apd.get("contact_email") or sp.get("contact_email") or tv.get("contact_email") or er.get("contact_email") or ewf.get("contact_email") or w.get("contact_email") or ""
-            phone = ap.get("contact_phone") or vibe.get("contact_phone") or r.get("contact_phone") or ed.get("contact_phone") or apd.get("contact_phone") or sp.get("contact_phone") or tv.get("contact_phone") or er.get("contact_phone") or ewf.get("contact_phone") or w.get("contact_phone") or ""
-        else:
-            name  = vibe.get("contact_name") or r.get("contact_name") or e.get("contact_name") or ed.get("contact_name") or apd.get("contact_name") or w.get("contact_name") or ""
-            title = vibe.get("contact_title") or r.get("contact_title") or e.get("contact_title") or ed.get("contact_title") or apd.get("contact_title") or w.get("contact_title") or ""
-            email = vibe.get("contact_email") or r.get("contact_email") or ed.get("contact_email") or apd.get("contact_email") or sp.get("contact_email") or tv.get("contact_email") or er.get("contact_email") or ewf.get("contact_email") or w.get("contact_email") or ""
-            phone = vibe.get("contact_phone") or r.get("contact_phone") or ed.get("contact_phone") or apd.get("contact_phone") or sp.get("contact_phone") or tv.get("contact_phone") or er.get("contact_phone") or ewf.get("contact_phone") or w.get("contact_phone") or e.get("contact_phone") or ""
-
-        linkedin = vibe.get("contact_linkedin") or r.get("contact_linkedin") or ""
+        name     = first_value(candidates, "contact_name")
+        title    = first_value(candidates, "contact_title")
+        email    = first_value(candidates, "contact_email")
+        phone    = first_value(candidates, "contact_phone")
+        linkedin = first_value(candidates, "contact_linkedin")
 
         if not name and not email and not phone:
             continue
 
         sources = []
-        if ap.get("contact_email"):          sources.append("apollo")
-        if _active(vd).get("contact_email"): sources.append("vibe_domain")
-        if _active(vo).get("contact_email"): sources.append("vibe_name")
-        if r.get("contact_email"):           sources.append(r.get("contact_source","rocketreach"))
-        if e.get("contact_name") and not ap:                              sources.append("exa")
-        if (ed.get("contact_name") or ed.get("contact_email") or ed.get("contact_phone")) and not ap:
-            sources.append("exa_domain")
-        if w.get("contact_name") or w.get("contact_email") or w.get("contact_phone"):
-            sources.append("web")
+        for label, data in candidates:
+            if data:
+                sources.append(data.get("contact_source") or label)
         source = "+".join(sources) or "enriched"
+
+        agreement_values = []
+        if email:
+            agreement_values = [
+                label for label, data in candidates
+                if (data.get("contact_email") or "").lower().strip() == email.lower().strip()
+            ]
+        elif name:
+            agreement_values = [
+                label for label, data in candidates
+                if (data.get("contact_name") or "").lower().strip() == name.lower().strip()
+            ]
 
         flag = quality_flag(name, title, email, website)
 
@@ -232,7 +228,7 @@ def main():
             "contact_linkedin": linkedin,
             "contact_source": source,
             "verified_level": lvl,
-            "sources_agreed": "",
+            "sources_agreed": str(len(agreement_values)) if agreement_values else "",
             "quality_flag":   flag,
         })
 

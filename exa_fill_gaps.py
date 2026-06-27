@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 4: Use Exa to find websites for dealers that guns.com profile didn't have,
+Use Exa to find websites for dealers that guns.com profile didn't have,
 and to fetch content for Cloudflare-protected sites that requests couldn't read.
 
 Browser-login flow:
@@ -36,7 +36,7 @@ EXA_SEARCH_URL = "https://api.exa.ai/search"
 EXA_FETCH_URL  = "https://api.exa.ai/contents"
 EXA_KEY_FILE   = "cache/exa_key.txt"
 
-# Statuses that still need work after Phase 2 + 3
+# Statuses that still need work after requests-based verification
 STILL_NEEDS    = {"fetch_failed", "unverified"}
 
 _GENERIC = {

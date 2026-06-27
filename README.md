@@ -1,39 +1,54 @@
 # guns.com Dealer Intelligence Pipeline
 
-Python scraping and enrichment system for building a structured lead dataset from guns.com dealer activity. The project discovers active dealers, captures listing volume, extracts visible profile/contact data, enriches missing websites and decision-maker contacts, verifies contact quality, and builds outbound-ready CSVs.
+Python pipeline for collecting active guns.com dealer data, enriching dealer websites and decision-maker contacts, and producing a clean B2B contact dataset.
 
-This repository intentionally excludes real scraped data, API keys, browser profiles, generated caches, checkpoints, logs, and lead CSV outputs.
+The repository is intentionally sanitized. It does not include API keys, `.env`, browser profiles, scraped lead CSVs, caches, checkpoints, logs, or generated outputs.
 
-## What It Does
+## Scope
 
-The system turns guns.com marketplace activity into a cleaned dealer-intelligence dataset:
+This public version keeps the coherent project core:
 
-1. Opens a real Chrome/UC browser session with persistent profile support.
-2. Handles VPN setup, age gates, Cloudflare challenges, and CAPTCHA pauses.
-3. Calls guns.com's internal catalog API from the browser context to discover active dealers and exact listing counts.
-4. Visits one sample product listing per dealer to extract visible seller profile details.
-5. Writes resumable CSV output with dealer name, profile URL, location, contact fields, listing counts, FFL status, ratings, and scrape timestamp.
-6. Cleans duplicate/chain dealers and clears invalid scraped phone artifacts.
-7. Finds official dealer websites through search APIs, Apollo, Exa, DDG/Google-style search, and Cloudflare/browser fallback.
-8. Enriches owner/manager contacts from websites, Apollo, Exa, Vibe/Explorium, RocketReach, Serper, Tavily, ATF FFL data, and Reoon verification.
-9. Merges all contact sources with priority rules, false-positive filters, and confidence levels.
-10. Splits final contacts into personal-email, generic-email, phone-only, manual-review, and outbound campaign files.
+1. Discover active guns.com dealers and listing counts.
+2. Scrape visible dealer profile details from sample product pages.
+3. Clean duplicate and chain-store dealer rows.
+4. Find and verify official dealer websites.
+5. Enrich owner/manager contacts from Apollo, Exa, and direct website scraping.
+6. Merge contact sources into clean, confidence-ranked CSV outputs.
+
+Experimental provider passes, marketplace-comparison scripts, and one-off outbound cleanup utilities were removed from the public repo to keep the project focused.
+
+## Repository Structure
+
+```text
+.
+├── main.py                         # CLI entry point for guns.com scrape
+├── scraper/
+│   ├── browser.py                  # Selenium/UC browser, VPN, age-gate, CAPTCHA handling
+│   ├── discovery.py                # guns.com catalog API dealer discovery
+│   ├── listing_count.py            # listing counts and sample product URLs
+│   ├── profile.py                  # product-page dealer detail extraction
+│   └── storage.py                  # CSV writer and resume checkpointing
+├── deduplicate.py                  # duplicate detection and optional address verification
+├── clean_and_merge.py              # known chain-store merge rules and cleanup
+├── enrich_websites.py              # initial website/location discovery
+├── postprocess_websites.py         # website false-positive cleanup
+├── verify_websites.py              # requests-based website ownership verification
+├── apollo_enrich.py                # Apollo company/domain enrichment
+├── exa_fill_gaps.py                # Exa search/fetch fallback for websites
+├── google_enrich.py                # final DDG-style website search fallback
+├── verify_cloudflare.py            # browser verification for blocked websites
+├── scrape_contacts.py              # direct website contact extraction
+├── apollo_contacts.py              # Apollo people/contact enrichment
+├── exa_contacts.py                 # Exa search for owner/manager names
+├── merge_contacts.py               # final contact source merge and filtering
+├── run_pipeline.sh                 # contact enrichment runner
+├── requirements.txt
+└── .env.example
+```
 
 ## Core Scraper
 
-### `main.py`
-
-Command-line entry point for the guns.com scrape. It supports:
-
-- Full scrape.
-- Discovery-only mode.
-- Resume from checkpoint.
-- State filtering.
-- Test limits.
-- Headless mode.
-- Custom output directory.
-
-Example:
+`main.py` is the primary entry point.
 
 ```bash
 python3 main.py --output dealers.csv --limit 10
@@ -41,199 +56,141 @@ python3 main.py --discover-only --output-dir ./out
 python3 main.py --resume --output dealers.csv
 ```
 
-### `scraper/browser.py`
+It supports:
 
-Owns browser lifecycle. It uses undetected Chrome through Selenium/SeleniumBase support and wraps browser operations behind a small helper class.
+- discovery-only mode
+- full dealer scrape
+- state filtering
+- test limits
+- resumable CSV output
+- headless mode
+- custom output directory
 
-Responsibilities:
+### Dealer Discovery
 
-- Creates a persistent `chrome_profile/`.
-- Prompts for one-time VPN setup when needed.
-- Uses Chrome for Testing and UC driver where available.
-- Handles age-gate buttons.
-- Detects Cloudflare/CAPTCHA pages.
-- Pauses for manual CAPTCHA solving.
-- Provides safe navigation and randomized delays.
+`scraper/discovery.py` calls guns.com's internal catalog search API from the browser context. It pulls dealer facets separately for new and used listings, then merges them into one dealer list with exact active listing counts.
 
-### `scraper/discovery.py`
+### Browser Handling
 
-Discovers dealers through guns.com's internal catalog API. The module navigates to guns.com, then runs same-origin XHR calls from the browser context.
+`scraper/browser.py` opens a persistent undetected Chrome profile and handles:
 
-It pulls dealer facets separately for:
+- one-time VPN setup prompt
+- guns.com age gate
+- Cloudflare/CAPTCHA detection
+- manual CAPTCHA pause and resume
+- randomized delays
+- safe navigation retries
 
-- Used listings.
-- New listings.
+### Profile Scraping
 
-The two dealer dictionaries are merged to create a unique dealer list with exact active listing counts.
+`scraper/profile.py` fetches one real product listing for each dealer, opens the product page, and extracts any visible seller information:
 
-Output in the working pipeline:
+- display name
+- address
+- city/state
+- phone
+- email
+- website
+- rating
+- review count
 
-- `out/dealers_discovered.json`.
+`scraper/storage.py` writes each row immediately and stores a JSON checkpoint so long runs can resume.
 
-### `scraper/listing_count.py`
+## Cleaning
 
-Fetches exact per-dealer listing counts and sample listing URLs through the catalog API. It re-checks new listing count per dealer because the discovery facet can be capped.
+`deduplicate.py` detects duplicate dealer candidates through name/suffix analysis and can verify ambiguous matches by opening sample product pages and comparing physical addresses.
 
-### `scraper/profile.py`
-
-Visits one sample product page for a dealer and extracts any visible seller profile data:
-
-- Display name.
-- Address.
-- City/state.
-- Phone.
-- Email.
-- External website.
-- Dealer rating.
-- Review count.
-
-### `scraper/storage.py`
-
-Writes rows to CSV with immediate flush and JSON checkpointing. This allows long scrapes to resume safely after interruptions.
-
-## Cleaning and Deduplication
-
-### `deduplicate.py`
-
-Detects possible duplicate dealers using prefix/name-variant analysis. It can optionally verify ambiguous pairs by opening product pages and comparing addresses.
-
-Signals:
-
-- Name/suffix classification.
-- Browser-based address comparison.
-- Manual review for unresolved duplicates.
-
-### `clean_and_merge.py`
-
-Handles known chain-store groups, folds branch variants into canonical rows where appropriate, sums listing counts, preserves location counts, and flags risky groups for manual review.
+`clean_and_merge.py` applies known chain-store merge rules, sums listing counts, preserves location counts, and clears invalid scraped phone artifacts.
 
 ## Website Enrichment
 
-Website discovery and verification is handled through several scripts because no single source covers every dealer.
+Website discovery is separated from the base scraper because guns.com does not always expose external dealer websites.
 
-Key scripts:
+The website workflow is:
 
-- `enrich_websites.py`: initial DDG/masterFFL-based city/state and website enrichment.
-- `postprocess_websites.py`: clears directory/locator/platform false positives.
-- `verify_websites.py`: verifies that page content matches dealer name or location.
-- `apollo_enrich.py`: uses Apollo company search to fill missing domains.
-- `exa_fill_gaps.py`: uses Exa search/fetch to find websites or verify Cloudflare-blocked sites.
-- `google_enrich.py`: final targeted search fallback for missing websites.
-- `verify_cloudflare.py`: uses browser rendering for pages blocked to normal HTTP requests.
-
-Verification logic includes:
-
-- Dealer-name token matches.
-- Location matches.
-- Domain token scoring.
-- Directory and marketplace exclusion.
-- Cloudflare/fetch-failure handling.
-- Source tagging and confidence fields.
+1. `enrich_websites.py`: finds city/state and likely website from search results.
+2. `postprocess_websites.py`: removes directories, marketplaces, dealer locators, and weak domain matches.
+3. `verify_websites.py`: verifies ownership by matching dealer-name/location tokens in page content.
+4. `apollo_enrich.py`: fills missing or unverified domains from Apollo company search.
+5. `exa_fill_gaps.py`: uses Exa search/fetch for missing domains and blocked pages.
+6. `google_enrich.py`: final targeted web-search fallback.
+7. `verify_cloudflare.py`: browser-based verification for Cloudflare-blocked pages.
 
 ## Contact Enrichment
 
-The project uses a layered contact enrichment strategy. Each provider writes to a cache, and `merge_contacts.py` later selects the best result.
+The contact workflow focuses on owner, founder, president, CEO, general manager, operations manager, and store manager profiles.
 
-Core sources:
+`run_pipeline.sh` runs the main contact enrichment sequence:
 
-- `scrape_contacts.py`: crawls dealer websites and contact/about/team pages for owner/manager names, titles, emails, and phones.
-- `apollo_contacts.py`: searches Apollo people data by company/domain/title.
-- `exa_contacts.py`: uses Exa neural search to find owner/manager names from snippets, LinkedIn, local news, BBB pages, and web pages.
-- `exa_domain_enrich.py`: searches by dealer domain and owner/manager keywords.
-- `exa_web_fetch.py`: fetches contact/about pages through Exa to bypass blocked sites.
-- `vibe_enrich.py`: enriches known named contacts through Vibe/Explorium.
-- `vibe_domain_enrich.py`: matches businesses by domain, fetches prospects, and enriches owner/manager contacts.
-- `rocketreach_enrich.py`: enriches already-known names through RocketReach.
-- `rocketreach_domain_enrich.py`: discovers and enriches prospects from RocketReach by company/domain.
-- `serper_enrich.py`: extracts indexed emails/phones through Serper Google search.
-- `tavily_enrich.py`: uses Tavily search as an alternate index.
-- `atf_ffl_enrich.py`: downloads the public ATF FFL database and matches licensee names/phones to dealers.
+1. `apollo_contacts.py`: searches Apollo people data by dealer name/domain/title.
+2. `exa_contacts.py`: searches the web for owner/manager names and nearby emails/phones.
+3. `scrape_contacts.py`: crawls dealer home, contact, about, team, and staff pages.
+4. `merge_contacts.py`: merges all sources and filters false positives.
 
-## Merge and Output
+`merge_contacts.py` writes:
 
-### `merge_contacts.py`
+- `contacts.csv`
+- `contacts_pending_enrichment.csv`
+- `contacts_excluded_false_positives.csv`
 
-Merges all enrichment caches into a clean contact CSV. It applies source priority, confidence levels, and false-positive filters.
+## Environment Variables
 
-Priority includes:
+Copy `.env.example` to `.env` and add only the keys needed for the phases you run.
 
-- Apollo.
-- Vibe domain/name matches.
-- RocketReach.
-- Exa domain/name searches.
-- Apollo domain.
-- Serper.
-- Tavily.
-- Exa rerun.
-- Exa web fetch.
-- Direct website scraping.
+```bash
+cp .env.example .env
+```
 
-It writes:
+Required for the base scrape:
 
-- `contacts.csv`.
-- `contacts_pending_enrichment.csv`.
-- `contacts_excluded_false_positives.csv`.
+- no API key required
+- Chrome/SeleniumBase setup required
+- US IP/VPN required
 
-### `split_contacts.py`
+Required for enrichment:
 
-Splits final contacts into personal email, generic email, and manual-review groups.
+- `APOLLO_API_KEY`
+- `EXA_API_KEY`
 
-### `build_outbound.py`
+## What Is Not Committed
 
-Builds outbound campaign CSVs. It:
+The `.gitignore` excludes:
 
-- Classifies email addresses as personal or generic.
-- Verifies generic emails with Reoon.
-- Re-enriches invalid personal emails through Serper.
-- Produces personal and generic outbound lists.
+- `.env`
+- real API keys
+- browser profiles
+- CSV lead outputs
+- cache files
+- checkpoint JSON files
+- logs
+- generated folders
+- Python bytecode
 
-## Supporting Marketplace Scripts
+## Validation
 
-Some scripts support a separate marketplace-comparison workflow:
+Local checks run before this cleanup:
 
-- `marketplace_enrich.py`
-- `enrich_marketplace.py`
-- `top16_enriched.py`
+```bash
+python3 main.py --help
+bash -n run_pipeline.sh
+python3 -m compileall -q .
+```
 
-They reuse enrichment caches from the main guns.com pipeline to fill contacts for marketplace comparison outputs.
+The live scrape/enrichment is not run as part of repository validation because it requires a US IP/VPN, interactive Cloudflare/CAPTCHA handling, live guns.com access, and external API keys.
 
 ## Tech Stack
 
 - Python
-- Selenium / SeleniumBase UC browser automation
+- Selenium / undetected Chrome browser automation
 - Requests / urllib
 - BeautifulSoup
 - DDGS search
 - RapidFuzz
 - Apollo API
 - Exa API
-- Vibe/Explorium API
-- RocketReach API
-- Serper API
-- Tavily API
-- Reoon email verification
-- ATF public FFL data
 - CSV/JSON file-based ETL
-
-## GitHub Safety Notes
-
-Do not commit:
-
-- `.env`
-- API keys
-- real scraped leads
-- `cache/`
-- `chrome_profile/`
-- `out/`
-- `snapshots/`
-- `downloaded_files/`
-- CSV exports
-- checkpoint JSON files
-- logs
-
-Use `.env.example` as the safe configuration template.
 
 ## CV Summary
 
-Built a Python-based dealer intelligence pipeline that scrapes guns.com dealer activity, captures exact listing counts through internal catalog APIs, extracts seller profile data with browser automation, enriches missing websites and decision-maker contacts through multiple external providers, verifies lead quality, removes false positives, and produces outbound-ready B2B contact lists.
+Built a Python-based guns.com dealer intelligence pipeline that discovers active firearm dealers through internal catalog APIs, captures exact listing counts, scrapes profile data with Selenium/UC browser automation, enriches missing websites and decision-maker contacts through Apollo, Exa, and direct website crawling, and merges results into clean confidence-ranked B2B contact datasets.
 

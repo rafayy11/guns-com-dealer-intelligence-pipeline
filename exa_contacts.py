@@ -13,7 +13,8 @@ Exa's neural search finds:
   - Facebook About pages
 
 Extracted names are saved with verified_level="medium" (name+title, no email yet)
-so Vibe Prospecting can find their email + direct phone in Phase 4.
+so the final merge can keep them in contacts_pending_enrichment.csv when no
+email or phone is available.
 
 Cache:   cache/exa_contacts_cache.json
 Output:  contacts.csv  (merged)
@@ -387,9 +388,9 @@ def main():
     print(f"  Have email          : {emailed}/{len(dealers)}")
     print(f"  Have phone          : {phoned}/{len(dealers)}")
     print(f"  High confidence     : {high}")
-    print(f"  Medium (name only)  : {medium}  ← ready for Vibe Phase 4")
+    print(f"  Medium (name only)  : {medium}  ← pending email/phone enrichment")
     print(f"  Low (store contact) : {low}")
-    print(f"\nPhases 1–3 complete. Notify user — ready for Phase 4 (Vibe API keys).")
+    print(f"\nContact enrichment complete. Next: python3 merge_contacts.py")
 
 
 if __name__ == "__main__":
