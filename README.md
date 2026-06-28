@@ -15,7 +15,9 @@ This public version keeps the coherent project core:
 5. Enrich owner/manager contacts from Apollo, Exa, and direct website scraping.
 6. Merge contact sources into clean, confidence-ranked CSV outputs.
 
-Experimental provider passes, marketplace-comparison scripts, and one-off outbound cleanup utilities were removed from the public repo to keep the project focused.
+Optional Serper.dev and Tavily search enrichment is available through one consolidated script. Older one-off provider reruns, marketplace-comparison scripts, and outbound cleanup utilities were removed from the public repo to keep the project focused.
+
+For setup, live run instructions, CAPTCHA handling, and API-key rotation, see [docs/user_guide.md](docs/user_guide.md).
 
 ## Repository Structure
 
@@ -40,6 +42,7 @@ Experimental provider passes, marketplace-comparison scripts, and one-off outbou
 ├── scrape_contacts.py              # direct website contact extraction
 ├── apollo_contacts.py              # Apollo people/contact enrichment
 ├── exa_contacts.py                 # Exa search for owner/manager names
+├── optional_search_enrich.py        # optional Serper/Tavily contact search
 ├── merge_contacts.py               # final contact source merge and filtering
 ├── run_pipeline.sh                 # contact enrichment runner
 ├── requirements.txt
@@ -133,6 +136,15 @@ The contact workflow focuses on owner, founder, president, CEO, general manager,
 - `contacts_pending_enrichment.csv`
 - `contacts_excluded_false_positives.csv`
 
+Optional search enrichment:
+
+```bash
+python3 optional_search_enrich.py --provider both
+python3 merge_contacts.py
+```
+
+This reads `SERPER_API_KEY`, `SERPER_API_KEY_2`, `TAVILY_API_KEY`, `TAVILY_API_KEY_2`, and later numbered keys from `.env`, rotating when a provider returns quota/rate-limit responses.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` and add only the keys needed for the phases you run.
@@ -152,6 +164,11 @@ Required for enrichment:
 - `APOLLO_API_KEY`
 - `EXA_API_KEY`
 
+Optional:
+
+- `SERPER_API_KEY`
+- `TAVILY_API_KEY`
+
 ## What Is Not Committed
 
 The `.gitignore` excludes:
@@ -168,15 +185,15 @@ The `.gitignore` excludes:
 
 ## Validation
 
-Local checks run before this cleanup:
+Local checks used for repository validation:
 
 ```bash
 python3 main.py --help
 bash -n run_pipeline.sh
-python3 -m compileall -q .
+python3 -m compileall -q main.py scraper *.py
 ```
 
-The live scrape/enrichment is not run as part of repository validation because it requires a US IP/VPN, interactive Cloudflare/CAPTCHA handling, live guns.com access, and external API keys.
+The live scrape requires a visible browser when Cloudflare/CAPTCHA appears. A headless test was able to start Chrome/WebDriver outside the sandbox, but stopped at Cloudflare because a real user must solve the challenge.
 
 ## Tech Stack
 
@@ -193,4 +210,3 @@ The live scrape/enrichment is not run as part of repository validation because i
 ## CV Summary
 
 Built a Python-based guns.com dealer intelligence pipeline that discovers active firearm dealers through internal catalog APIs, captures exact listing counts, scrapes profile data with Selenium/UC browser automation, enriches missing websites and decision-maker contacts through Apollo, Exa, and direct website crawling, and merges results into clean confidence-ranked B2B contact datasets.
-

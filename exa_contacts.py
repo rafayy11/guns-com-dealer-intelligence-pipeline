@@ -120,25 +120,61 @@ FIELDS = [
 ]
 
 
+_EXA_KEYS = []
+_EXA_KEY_INDEX = 0
+
+
+def _load_exa_keys() -> list[str]:
+    keys = []
+    first = os.getenv("EXA_API_KEY", "").strip()
+    if first:
+        keys.append(first)
+    for i in range(2, 11):
+        key = os.getenv(f"EXA_API_KEY_{i}", "").strip()
+        if key:
+            keys.append(key)
+    return keys
+
+
 def _get_exa_key() -> str:
-    return os.getenv("EXA_API_KEY", "")
+    global _EXA_KEYS
+    _EXA_KEYS = _load_exa_keys()
+    return _EXA_KEYS[0] if _EXA_KEYS else ""
+
+
+def _current_exa_key(fallback: str = "") -> str:
+    if _EXA_KEYS:
+        return _EXA_KEYS[_EXA_KEY_INDEX]
+    return fallback
+
+
+def _rotate_exa_key() -> bool:
+    global _EXA_KEY_INDEX
+    _EXA_KEY_INDEX += 1
+    if _EXA_KEY_INDEX >= len(_EXA_KEYS):
+        return False
+    print(f"    [Exa key rotated → key {_EXA_KEY_INDEX + 1}/{len(_EXA_KEYS)}]")
+    return True
 
 
 def _exa_request(endpoint: str, payload: dict, api_key: str) -> dict:
-    data = json.dumps(payload).encode("utf-8")
-    req  = urllib.request.Request(
-        endpoint, data=data,
-        headers={"Content-Type": "application/json", "x-api-key": api_key},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        if e.code in (402, 429):
-            raise RuntimeError(f"Exa credits exhausted (HTTP {e.code})")
-        body = e.read().decode("utf-8", errors="ignore")[:200]
-        raise RuntimeError(f"Exa HTTP {e.code}: {body}")
+    while True:
+        data = json.dumps(payload).encode("utf-8")
+        req  = urllib.request.Request(
+            endpoint, data=data,
+            headers={"Content-Type": "application/json", "x-api-key": _current_exa_key(api_key)},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code in (402, 429):
+                if _rotate_exa_key():
+                    continue
+                raise RuntimeError(f"Exa credits exhausted (HTTP {e.code})")
+            body = e.read().decode("utf-8", errors="ignore")[:200]
+            raise RuntimeError(f"Exa HTTP {e.code}: {body}")
 
 
 def exa_search_owner(name: str, city: str, state: str, api_key: str) -> list:

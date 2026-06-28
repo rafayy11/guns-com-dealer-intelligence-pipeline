@@ -19,6 +19,7 @@ Resume anytime — progress saved to exa_cache.json after each dealer.
 
 import csv
 import json
+import os
 import re
 import time
 import random
@@ -26,6 +27,9 @@ import urllib.request
 import urllib.parse
 import urllib.error
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 ENRICHED       = "dealers_enriched.csv"
 VERIFY_RESULTS = "verify_results.csv"
@@ -99,13 +103,31 @@ def _root_url(url: str) -> str:
     return m.group(1) if m else url
 
 
-# ── API key — paste from your own browser ────────────────────────────────────
+# ── API key rotation ──────────────────────────────────────────────────────────
+
+def _load_env_keys() -> list[str]:
+    keys = []
+    first = os.getenv("EXA_API_KEY", "").strip()
+    if first:
+        keys.append(first)
+    for i in range(2, 11):
+        key = os.getenv(f"EXA_API_KEY_{i}", "").strip()
+        if key:
+            keys.append(key)
+    return keys
+
 
 def _get_api_key(account_num: int = 1) -> str:
     """
-    Ask the user to paste their Exa API key from their own browser.
-    Saves to exa_key.txt so resume runs don't re-ask.
+    Use EXA_API_KEY / EXA_API_KEY_2 / ... from .env first.
+    If the requested account is not in .env, ask the user to paste a key.
     """
+    env_keys = _load_env_keys()
+    if account_num <= len(env_keys):
+        key = env_keys[account_num - 1]
+        print(f"  Loaded Exa key #{account_num} from .env: {key[:8]}...{key[-4:]}")
+        return key
+
     # On first call, check if a saved key exists
     if account_num == 1 and Path(EXA_KEY_FILE).exists():
         key = Path(EXA_KEY_FILE).read_text().strip()
@@ -298,7 +320,8 @@ def main():
     if not todo_all:
         print("All targets in cache — applying results.")
     else:
-        key = _get_api_key(account_num=1)
+        account_num = 1
+        key = _get_api_key(account_num=account_num)
         if not key:
             print("No API key provided — exiting.")
             return
@@ -361,7 +384,8 @@ def main():
                         _save_json(EXA_CACHE, cache)
                         Path(EXA_KEY_FILE).unlink(missing_ok=True)  # clear saved key
 
-                        key = _get_api_key(account_num=2)
+                        account_num += 1
+                        key = _get_api_key(account_num=account_num)
                         if not key:
                             print("No key provided — saving progress and exiting.")
                             raise KeyboardInterrupt

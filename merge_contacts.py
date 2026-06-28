@@ -6,6 +6,8 @@ Sources (priority order):
   1. apollo_contacts_cache — Apollo people/contact enrichment
   2. exa_contacts_cache    — Exa owner/manager web search
   3. contacts_web_cache    — direct dealer website scraping
+  4. serper_cache           — optional search enrichment
+  5. tavily_cache           — optional search enrichment
 
 Filters applied:
   - Foreign email domains (.com.au, .co.uk, .ca, etc.) that don't match dealer website
@@ -148,6 +150,8 @@ def main():
     apollo = load_cache("cache/apollo_contacts_cache.json")
     exa    = load_cache("cache/exa_contacts_cache.json")
     web    = load_cache("cache/contacts_web_cache.json")
+    serper = load_cache("cache/serper_cache.json")
+    tavily = load_cache("cache/tavily_cache.json")
 
     rows = []
     stats = {"high": 0, "medium": 0, "low": 0,
@@ -177,6 +181,8 @@ def main():
             ("apollo", active(apollo.get(dealer, {}))),
             ("exa", active(exa.get(dealer, {}))),
             ("web", active(web.get(dealer, {}))),
+            ("serper", active(serper.get(dealer, {}))),
+            ("tavily", active(tavily.get(dealer, {}))),
         ]
 
         name     = first_value(candidates, "contact_name")
